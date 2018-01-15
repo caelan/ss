@@ -1,7 +1,10 @@
+from ss.model.functions import TotalCost
 from ss.to_pddl import pddl_conjunction
 from functions import Head, process_parameters, check_parameters, is_parameter, Atom, initialize
 from ss.to_pddl import pddl_parameter
 from collections import defaultdict, deque
+
+from ss.utils import INF
 
 
 def applicable(preconditions, state):
@@ -16,6 +19,27 @@ def apply(effects, state):
     for e in effects:
         e.assign(new_state)
     return new_state
+
+
+def state_sequence(initial, actions):
+
+    states = [apply(initial, {})]
+    for action in actions:
+        assert not action.parameters
+        states.append(action.apply(states[-1]))
+    return states
+
+
+def is_solution(evals, plan, goal):
+
+    state = defaultdict(bool)
+    instances = [Initial(evals)] + [action.instantiate(args)
+                                    for action, args in plan] + [Goal(goal)]
+    for instance in instances:
+        if not instance.applicable(state):
+            return False
+        state = instance.apply(state)
+    return True
 
 
 class Operator(object):
@@ -43,6 +67,21 @@ class Operator(object):
 
     def apply(self, state):
         return apply(self.effects, state)
+
+    def __repr__(self):
+        return 'Op({},{},{})'.format(list(self.parameters), list(self.preconditions), list(self.effects))
+
+
+class Initial(Operator):
+
+    def __init__(self, eff):
+        super(Initial, self).__init__([], [], eff)
+
+
+class Goal(Operator):
+
+    def __init__(self, pre):
+        super(Goal, self).__init__([], pre, [])
 
 
 class Action(Operator):
@@ -111,7 +150,7 @@ class Axiom(Operator):
                               self.effect.substitute(constant_mapping))
 
     def __repr__(self):
-        return repr(self.effect.head.function)
+        return repr(self.effect)
 
 
 class Problem(object):
@@ -124,6 +163,12 @@ class Problem(object):
         self.axioms = axioms
         self.streams = streams
         self.objective = objective
+
+    def get_action(self, name):
+        for action in self.actions:
+            if action.name == name:
+                return action
+        return None
 
     def is_temporal(self):
 
@@ -140,12 +185,8 @@ class Problem(object):
         return {ax.effect.head.function for ax in self.axioms}
 
     def dump(self):
-        eval_from_function = defaultdict(set)
-        for eval in self.initial:
-            eval_from_function[eval.head.function].add(eval)
         print 'Initial'
-        for i, fn in enumerate(sorted(eval_from_function)):
-            print i, sorted(eval_from_function[fn])
+        dump_evaluations(self.initial)
 
     def __repr__(self):
         return '{}\n'               'Initial: {}\n'               'Goal: {}\n'               'Actions: {}\n'               'Axioms: {}\n'               'Streams: {}\n'.format(self.__class__.__name__,
@@ -193,6 +234,57 @@ def axiom_achievers(axiom_instances, state):
     return axiom_from_eff
 
 
+def supporting_axioms_helper(goal, axiom_from_eff, supporters):
+
+    axiom = axiom_from_eff[goal]
+    if (axiom is None) or (axiom in supporters):
+        return
+    supporters.add(axiom)
+    for pre in axiom.preconditions:
+        supporting_axioms_helper(pre, axiom_from_eff, supporters)
+
+
+def supporting_axioms(state, goals, axiom_instances):
+
+    axiom_from_eff = axiom_achievers(axiom_instances, state)
+    supporters = set()
+    for goal in goals:
+        if not isinstance(goal, Atom):
+
+            continue
+        if goal not in axiom_from_eff:
+            return None
+        supporting_axioms_helper(goal, axiom_from_eff, supporters)
+    return supporters
+
+
+def plan_supporting_axioms(evaluations, plan_instances, axiom_instances, goal):
+    states = state_sequence(evaluations, plan_instances)
+    for state, action in zip(states, plan_instances + [Goal(goal)]):
+        yield supporting_axioms(state, action.preconditions, axiom_instances)
+
+
 def apply_axioms(axiom_instances, state):
     for eval in axiom_achievers(axiom_instances, state):
         eval.assign(state)
+
+
+def get_length(plan, evaluations):
+    if plan is None:
+        return INF
+    return len(plan)
+
+
+def get_cost(plan, evaluations):
+    if plan is None:
+        return INF
+    plan_instances = [action.instantiate(args) for action, args in plan]
+    return state_sequence(evaluations, plan_instances)[-1][TotalCost()]
+
+
+def dump_evaluations(evaluations):
+    eval_from_function = defaultdict(set)
+    for eval in evaluations:
+        eval_from_function[eval.head.function].add(eval)
+    for i, fn in enumerate(sorted(eval_from_function, key=lambda fn: fn.name)):
+        print i, len(eval_from_function[fn]), sorted(eval_from_function[fn], key=lambda eval: eval.head.args)

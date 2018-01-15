@@ -1,9 +1,9 @@
 from ss.model.functions import Predicate, Function, rename_functions, initialize, TotalCost, Increase
 from ss.model.problem import Action, Axiom, Problem
-from ss.algorithms.incremental import exhaustive
+from ss.algorithms.incremental import exhaustive, incremental
 
 
-def main(n=2):
+def main(n=2, verbose=False):
 
     Item = Predicate('?b')
     Part = Predicate('?r')
@@ -88,7 +88,9 @@ def main(n=2):
                       axioms, [], objective=TotalCost())
 
     print problem
-    print exhaustive(problem, verbose=True)
+
+    plan, evaluations = incremental(problem, verbose=verbose)
+    print plan
 
 if __name__ == '__main__':
     main()

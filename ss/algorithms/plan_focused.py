@@ -1,29 +1,18 @@
 import time
+from collections import deque
 
-from ss.model.problem import Action, Problem
-
+from ss.algorithms.focused_utils import evaluate_eager, revisit_reset_fn
 from ss.algorithms.incremental import solve_universe
-from ss.algorithms.universe import Universe, get_length
+from ss.algorithms.universe import Universe
 from ss.model.functions import Predicate, Increase, infer_evaluations, TotalCost
+from ss.model.problem import Action, Problem, get_length, get_cost
 from ss.utils import INF
 
 
-def make_stream_action(stream):
-    params = stream.inputs + stream.outputs
-    stream.predicate = Predicate(params)
-    action = Action(stream.name, params,
-                    list(stream.domain) + [stream.predicate(*params)],
-                    list(stream.graph) + [Increase(TotalCost(), 1)])
-    action.stream = stream
-    return action
-
-
 def bound_stream_instances(universe):
-    instances = []
     abstract_evals = set()
     while universe.stream_queue:
         instance = universe.stream_queue.popleft()
-        instances.append(instance)
         outputs_list = instance.bound_outputs()
 
         for outputs in outputs_list:
@@ -31,79 +20,95 @@ def bound_stream_instances(universe):
             universe.add_eval(instance.stream.predicate(*params))
             for atom in instance.substitute_graph(outputs):
                 if atom not in universe.evaluations:
-
                     abstract_evals.add(atom)
                     universe.add_eval(atom)
-
     return abstract_evals
 
 
-def plan_focused(problem, max_time=INF, planner='ff-astar', single=False, verbose=False):
+def plan_focused(problem, max_time=INF, terminate_cost=INF,
+                 planner='ff-astar', reset_fn=revisit_reset_fn, single=False, verbose=False):
     start_time = time.time()
     num_iterations = 0
     num_epochs = 1
     evaluations = infer_evaluations(problem.initial)
-    disabled = set()
+    disabled = deque()
 
-    stream_actions = map(make_stream_action, problem.streams)
-    print stream_actions
+    stream_actions = []
+    stream_axioms = []
+    for stream in problem.streams:
+        params = stream.inputs + stream.outputs
+        stream.predicate = Predicate(params)
+        preconditions = list(stream.domain) + [stream.predicate(*params)]
 
-    stream_problem = Problem([], problem.goal,
-                             problem.actions + stream_actions, problem.axioms,
-                             problem.streams, objective=TotalCost())
+        action = Action(stream.name, params, preconditions,
+                        list(stream.graph) + [Increase(TotalCost(), 1)])
+        action.stream = stream
+        stream_actions.append(action)
 
+    stream_problem = Problem([], problem.goal, problem.actions + stream_actions,
+                             problem.axioms + stream_axioms, problem.streams, objective=TotalCost())
+    best_plan = None
+    best_cost = INF
     while (time.time() - start_time) < max_time:
         num_iterations += 1
-        print '\nEpoch: {} | Iteration: {} | Disabled: {} | Time: {:.3f}'.format(num_epochs, num_iterations,
-                                                                                 len(disabled), time.time() - start_time)
-
-        eager_universe = Universe(
-            problem, evaluations, use_bounds=False, only_eager=True)
-
-        evaluations = eager_universe.evaluations
+        print 'Epoch: {} | Iteration: {} | Disabled: {} | Cost: {} | '              'Time: {:.3f}'.format(num_epochs, num_iterations, len(disabled), best_cost, time.time() - start_time)
+        evaluations = evaluate_eager(problem, evaluations)
         universe = Universe(stream_problem, evaluations,
                             use_bounds=True, only_eager=False)
+        if not all(f.eager for f in universe.defined_functions):
+            raise NotImplementedError(
+                'Non-eager functions are not yet supported')
 
         abstract_evals = bound_stream_instances(universe)
         universe.evaluations -= abstract_evals
         plan = solve_universe(universe, planner=planner, verbose=verbose)
-        print 'Length: {} | Cost: {}'.format(get_length(plan), universe.get_cost(plan))
-        print 'Plan:', plan
         if plan is None:
             if not disabled:
-                return None
-            for instance in disabled:
-                instance.disabled = False
-            disabled = set()
+                break
+            reset_fn(disabled, evaluations)
             num_epochs += 1
             continue
 
         action_instances = []
         stream_instances = []
-        for name, args in plan:
-            action = universe.action_from_name[name]
+        for action, args in plan:
             if action not in stream_actions:
                 action_instances.append((action, args))
                 continue
             inputs = args[:len(action.stream.inputs)]
             stream_instances.append(action.stream.get_instance(inputs))
+        print 'Length: {} | Cost: {} | Streams: {}'.format(
+            get_length(plan, universe.evaluations), get_cost(plan, universe.evaluations), len(stream_instances))
+
         print 'Actions:', action_instances
         if not stream_instances:
-            return plan
+            cost = get_cost(plan, universe.evaluations)
+            if cost < best_cost:
+                best_plan = plan
+                best_cost = cost
+            if (best_cost != INF) and (best_cost <= terminate_cost):
+                break
+            if not disabled:
+                break
+            reset_fn(disabled, evaluations)
+            num_epochs += 1
+            continue
+
         if single:
             stream_instances = stream_instances[:1]
         print 'Streams:', stream_instances
         evaluated = []
         for i, instance in enumerate(stream_instances):
             if set(instance.domain()) <= evaluations:
-
                 new_atoms = infer_evaluations(instance.next_atoms())
-                print i, instance, new_atoms
+
                 evaluations.update(new_atoms)
                 instance.disabled = True
-                disabled.add(instance)
+                if not instance.enumerated:
+                    disabled.append(instance)
                 evaluated.append(instance)
-        print 'Evaluated:', evaluated
+        if verbose:
+            print 'Evaluated:', evaluated
         assert evaluated
 
-    return None
+    return best_plan, evaluations

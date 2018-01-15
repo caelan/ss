@@ -3,6 +3,8 @@ from ss.model.problem import Action, Axiom, Problem
 from ss.model.streams import Stream, FnStream, ListStream
 from ss.algorithms.incremental import incremental, exhaustive
 from ss.algorithms.focused import focused
+from ss.algorithms.plan_focused import plan_focused
+from ss.algorithms.dual_focused import dual_focused
 from ss.model.bounds import OutputSet
 from collections import namedtuple
 
@@ -19,8 +21,8 @@ def main():
     initial_bq = BConf(0, 1)
 
     initial_poses = {
-        'green': [10, 10],
-        'table': [10, 20],
+        'green': [10, 10, 30],
+        'table': [10, 20, 30],
     }
     movable = {'green'}
 
@@ -56,7 +58,7 @@ def main():
     IsFixed = Predicate([O])
 
     IsKin = Predicate([R, O, P, G, Q])
-    IsStackable = Predicate([O, S])
+
     IsSupported = Predicate([P, P2])
 
     IsArm = Predicate([R])
@@ -100,18 +102,19 @@ def main():
 
     rename_functions(locals())
 
+    bound = 'shared'
     streams = [
         FnStream(name='grasp', inp=[O], domain=[IsMovable(O)],
                  fn=lambda o: (Grasp(o),),
-                 out=[G], graph=[IsGrasp(O, G)]),
+                 out=[G], graph=[IsGrasp(O, G)], bound=bound),
         ListStream(name='IK', inp=[R, O, P, G], domain=[IsArm(R), IsPose(O, P), IsGrasp(O, G)],
                    fn=lambda r, o, p, g: [(BConf(p.x, +1),)],
-                   out=[Q], graph=[IsKin(R, O, P, G, Q), IsConf(base, Q)]),
+                   out=[Q], graph=[IsKin(R, O, P, G, Q), IsConf(base, Q)], bound=bound),
         FnStream(name='placement', inp=[O, S, P],
                  domain=[IsMovable(O), IsFixed(S), IsPose(S, P)],
 
                  fn=lambda o, s, p: (Pose(o, p.x),),
-                 out=[P2], graph=[IsPose(O, P2), IsSupported(P2, P)]),
+                 out=[P2], graph=[IsPose(O, P2), IsSupported(P2, P)], bound=bound),
     ]
 
     actions = [
@@ -129,12 +132,22 @@ def main():
                pre=[IsConf(base, Q), IsConf(base, Q2),
                     AtConf(base, Q)],
                eff=[AtConf(base, Q2), ~AtConf(base, Q),
-                    Increase(TotalCost(), Distance(Q, Q2))]),
+                    Increase(TotalCost(), 1)]),
+
 
         Action(name='move_head', param=[Q, Q2],
                pre=[IsConf(head, Q), IsConf(head, Q2),
                     AtConf(head, Q)],
                eff=[AtConf(head, Q2), ~AtConf(head, Q)]),
+
+
+
+
+
+
+
+
+
     ]
     axioms = [
         Axiom(param=[R, O, G],
@@ -161,6 +174,13 @@ def main():
 
     for n, p in initial_p_from_name.items():
         initial_atoms += [IsPose(n, p), AtPose(n, p)]
+        if class_from_name[n] not in movable:
+            continue
+        for n2, p2 in initial_p_from_name.items():
+            if class_from_name[n2] in movable:
+                continue
+            if p.x == p2.x:
+                initial_atoms.append(IsSupported(p, p2))
     for n, cl in class_from_name.items():
 
         if cl in movable:
@@ -168,7 +188,7 @@ def main():
         else:
             initial_atoms.append(IsFixed(n))
 
-    goal_literals = [On('green0', 'table1')]
+    goal_literals = [On('green0', 'table1'), On('green1', 'table1')]
 
     problem = Problem(initial_atoms, goal_literals, actions,
                       axioms, streams, objective=TotalCost())
@@ -177,7 +197,8 @@ def main():
 
     pr = cProfile.Profile()
     pr.enable()
-    plan = exhaustive(problem, verbose=True)
+
+    plan = focused(problem, verbose=False)
 
     pr.disable()
     pstats.Stats(pr).sort_stats('tottime').print_stats(10)

@@ -13,8 +13,9 @@ class OutputSet(Hashable):
         return self.stream.get_instance(self.inputs)
 
     def __repr__(self):
+        param = self.stream.outputs[self.index]
 
-        return '{' + self.stream.outputs[self.index] + '}'
+        return '%s-%s' % (param, id(self) % 100)
 
 
 class SharedOutputSet(Hashable):

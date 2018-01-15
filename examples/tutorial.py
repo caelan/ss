@@ -3,6 +3,7 @@ from ss.model.problem import Action, Axiom, Problem
 from ss.model.streams import Stream
 from ss.algorithms.incremental import incremental, exhaustive
 from ss.algorithms.focused import focused
+from ss.algorithms.dual_focused import dual_focused
 
 USE_NEGATIVE = False
 
@@ -95,8 +96,10 @@ def main(n=2):
                       axioms, streams, objective=TotalCost())
 
     print problem
-    print exhaustive(problem, verbose=True)
 
+    plan, evaluations = dual_focused(problem, terminate_cost=0)
+
+    print plan
 
 if __name__ == '__main__':
     main()

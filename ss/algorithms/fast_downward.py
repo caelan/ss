@@ -15,13 +15,22 @@ SEARCH_COMMAND = 'downward %s < '
 
 
 SEARCH_OPTIONS = {
-    'dijkstra': '--heuristic "h=blind(transform=adapt_costs(cost_type=PLUSONE))" --search "astar(h,cost_type=NORMAL,max_time=%s,bound=%s)"',
-
-    'max-astar': '--heuristic "h=hmax(transform=adapt_costs(cost_type=NORMAL))" --search "astar(h,cost_type=NORMAL,max_time=%s,bound=%s)"',
-
-    'ff-astar': '--heuristic "h=ff(transform=adapt_costs(cost_type=NORMAL))" --search "astar(h,cost_type=NORMAL,max_time=%s,bound=%s)"',
+    'dijkstra': '--heuristic "h=blind(transform=adapt_costs(cost_type=NORMAL))" '
+    '--search "astar(h,cost_type=NORMAL,max_time=%s,bound=%s)"',
+    'max-astar': '--heuristic "h=hmax(transform=adapt_costs(cost_type=NORMAL))"'
+    ' --search "astar(h,cost_type=NORMAL,max_time=%s,bound=%s)"',
+    'ff-astar': '--heuristic "h=ff(transform=adapt_costs(cost_type=NORMAL))" '
+    '--search "astar(h,cost_type=NORMAL,max_time=%s,bound=%s)"',
+    'ff-wastar1': '--heuristic "h=ff(transform=adapt_costs(cost_type=NORMAL))" '
+                '--search "lazy_wastar([h],preferred=[h],reopen_closed=true,boost=100,w=1,'
+                'preferred_successors_first=true,cost_type=NORMAL,max_time=%s,bound=%s)"',
+    'ff-wastar3': '--heuristic "h=ff(transform=adapt_costs(cost_type=PLUSONE))" '
+                '--search "lazy_wastar([h],preferred=[h],reopen_closed=false,boost=1000,w=3,'
+                'preferred_successors_first=true,cost_type=PLUSONE,max_time=%s,bound=%s)"',
     'ff-eager': '--heuristic "hff=ff(transform=adapt_costs(cost_type=PLUSONE))" '
     '--search "eager_greedy([hff],preferred=[hff],max_time=%s,bound=%s)"',
+    'ff-lazy': '--heuristic "hff=ff(transform=adapt_costs(cost_type=PLUSONE))" '
+    '--search "lazy_greedy([hff],preferred=[hff],max_time=%s,bound=%s)"',
 }
 
 
@@ -71,7 +80,7 @@ def run_translate(verbose):
             sys.stdout = old_stdout
 
 
-def run_fast_downward(planner, max_time, max_cost, verbose):
+def run_search(planner, max_time, max_cost, verbose):
     if max_time == INF:
         max_time = 'infinity'
     elif isinstance(max_time, float):
@@ -80,7 +89,6 @@ def run_fast_downward(planner, max_time, max_cost, verbose):
         max_cost = 'infinity'
     elif isinstance(max_cost, float):
         max_cost = int(max_cost)
-    run_translate(verbose)
 
     t0 = time()
     search = os.path.join(get_fd_root(), FD_BIN,
@@ -113,12 +121,13 @@ def remove_paths():
         safe_remove(p)
 
 
-def fast_downward(domain_pddl, problem_pddl, planner='max-astar', max_time=INF, max_cost=INF,
-                  verbose=False, clean=False):
+def fast_downward(domain_pddl, problem_pddl, planner='max-astar',
+                  max_time=INF, max_cost=INF, verbose=False, clean=False):
     remove_paths()
     write(DOMAIN_INPUT, domain_pddl)
     write(PROBLEM_INPUT, problem_pddl)
-    solution = run_fast_downward(planner, max_time, max_cost, verbose)
+    run_translate(verbose)
+    solution = run_search(planner, max_time, max_cost, verbose)
     if clean:
         remove_paths()
     if solution is None:

@@ -46,6 +46,12 @@ class Head(Hashable):
         assert len(self.function.inputs) == len(self.args)
         super(Head, self).__init__(func, self.args)
 
+    def has_constants(self):
+        return not all(map(is_parameter, self.args))
+
+    def has_parameters(self):
+        return any(map(is_parameter, self.args))
+
     def domain(self):
         for atom in self.function.domain:
             yield atom.substitute(self.mapping())

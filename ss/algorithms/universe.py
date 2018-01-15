@@ -1,12 +1,10 @@
 from collections import defaultdict, deque
 from itertools import product
 
-from ss.model.problem import apply, reset_derived, apply_axioms, applicable
+from ss.model.functions import Object, Function, initialize, process_domain, Atom, Predicate, NegatedAtom
+from ss.model.problem import apply, reset_derived, apply_axioms, applicable, dump_evaluations, Goal
 from ss.model.streams import Stream
-
-from ss.model.functions import Object, Function, initialize, process_domain, Atom, Predicate, NegatedAtom,    TotalCost
 from ss.to_pddl import pddl_domain, pddl_problem
-from ss.utils import INF
 
 
 def get_mapping(atoms1, atoms2):
@@ -22,21 +20,16 @@ def get_mapping(atoms1, atoms2):
     return mapping
 
 
-def get_length(plan):
-    if plan is None:
-        return INF
-    return len(plan)
-
-
 class Universe(object):
     _domain_name = 'stripstream'
     _problem_name = _domain_name
 
-    def __init__(self, problem, initial, use_bounds, only_eager):
+    def __init__(self, problem, initial, use_bounds, only_eager, evaluate=True):
 
         self.problem = problem
         self.use_bounds = use_bounds
         self.only_eager = only_eager
+        self.evaluate = evaluate
         self.evaluations = set()
         self.value_from_head = {}
         self.atoms_from_predicate = defaultdict(set)
@@ -65,18 +58,15 @@ class Universe(object):
         for stream in problem.streams:
             if only_eager and not stream.eager:
                 continue
+
             for i, atom in enumerate(stream.domain):
                 self.streams_from_predicate[
                     atom.head.function].append((stream, i))
-        for func in self.functions:
 
-            if not func.is_defined():
+        self.defined_functions = {f for f in self.functions if f.is_defined()}
+        for func in self.defined_functions:
+            if (use_bounds and (not func.is_bound_defined())) or (only_eager and (not func.eager)):
                 continue
-            if use_bounds and (not func.is_bound_defined()):
-                continue
-            if only_eager and (not func.eager):
-                continue
-
             for i, atom in enumerate(func.domain):
                 self.streams_from_predicate[
                     atom.head.function].append((func, i))
@@ -90,6 +80,8 @@ class Universe(object):
             for obj in literal.head.args:
                 self.add_eval(Object(obj))
         for stream in problem.streams:
+            if only_eager and not stream.eager:
+                continue
             if not stream.domain:
                 self._add_instance(stream, {})
 
@@ -121,6 +113,8 @@ class Universe(object):
             raise ValueError(relation)
 
     def _update_stream_instances(self, atom):
+        if not self.evaluate:
+            return
         for relation, i in self.streams_from_predicate[atom.head.function]:
 
             values = [self.atoms_from_predicate.get(a.head.function, {}) if i != j else {atom}
@@ -131,8 +125,14 @@ class Universe(object):
                 if mapping is not None:
                     self._add_instance(relation, mapping)
 
+    def is_fluent(self, e):
+        return e.head.function in self.fluents
+
+    def is_derived(self, e):
+        return e.head.function in self.axioms_from_derived
+
     def is_static(self, e):
-        return e.head.function not in self.fluents
+        return not self.is_derived(e) and not self.is_fluent(e)
 
     def _operator_instances(self, operator):
 
@@ -202,7 +202,6 @@ class Universe(object):
         axioms = [axiom.instantiate(args)
                   for axiom, args in self.axiom_instances()]
         state = apply(self.evaluations, defaultdict(bool))
-
         reset_derived(self.axioms_from_derived, state)
         print 0, self.state_fluents(state)
         for i, instance in enumerate(plan_instances):
@@ -214,40 +213,30 @@ class Universe(object):
         apply_axioms(axioms, state)
         assert applicable(self.problem.goal, state)
 
-    def supporting(self, condition, state):
-
-        for axiom in self.axioms_from_derived[condition.head.function]:
-            mapping = dict(zip(axiom.effect.head.args, condition.head.args))
-            print mapping
-
-            print axiom.preconditions
-
-            raise NotImplementedError()
+    def is_solution(self, plan):
+        plan_instances = [action.instantiate(
+            args) for action, args in plan] + [Goal(self.problem.goal)]
+        axiom_instances = [axiom.instantiate(
+            args) for axiom, args in self.axiom_instances()]
+        state = apply(self.evaluations, defaultdict(bool))
+        for instance in plan_instances:
+            reset_derived(self.axioms_from_derived, state)
+            apply_axioms(axiom_instances, state)
+            if not instance.applicable(state):
+                return False
+            state = instance.apply(state)
+        return True
 
     def convert_plan(self, plan):
         if plan is None:
             return None
         new_plan = []
-        for action, args in plan:
-            new_plan.append(
-                (action, tuple(self.object_from_name[a] for a in args)))
-
+        for action_name, arg_names in plan:
+            action = self.action_from_name[action_name]
+            args = tuple(self.object_from_name[a] for a in arg_names)
+            new_plan.append((action, args))
         return new_plan
 
-    def get_cost(self, plan):
-        if plan is None:
-            return INF
-        plan_instances = [self.action_from_name[
-            name].instantiate(args) for name, args in plan]
-        state = apply(self.evaluations, defaultdict(bool))
-        for instance in plan_instances:
-            state = instance.apply(state)
-        return state[TotalCost()]
-
     def dump(self):
-        eval_from_function = defaultdict(set)
-        for eval in self.evaluations:
-            eval_from_function[eval.head.function].add(eval)
         print 'Evaluations'
-        for i, fn in enumerate(sorted(eval_from_function)):
-            print i, sorted(eval_from_function[fn])
+        dump_evaluations(self.evaluations)
