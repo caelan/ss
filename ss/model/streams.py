@@ -1,7 +1,29 @@
-from functions import process_parameters, process_domain, Object, Predicate
+from bounds import SharedOutputSet, INF
+from functions import process_parameters, process_domain, Object
+from ss.model.bounds import unique_bound_fn, shared_bound_fn, no_bound_fn, cyclic_bound_fn, depth_bound_fn, PartialBoundFn
 from ss.utils import Hashable
-from bounds import OutputSet, SharedOutputSet, INF
-import operator
+
+
+class Context(object):
+
+    def __init__(self, output_sets, conditions=tuple()):
+        self.output_sets = output_sets
+        self.conditions = conditions
+
+    def __repr__(self):
+        return '{}({},conditions={})'.format(self.__class__.__name__, self.output_sets, self.conditions)
+
+
+class CondGen(object):
+
+    def __init__(self, *inputs):
+        self.inputs = tuple(inputs)
+        self.calls = 0
+        self.enumerated = False
+
+    def generate(self, context=None):
+
+        raise NotImplementedError()
 
 
 class StreamInstance(Hashable):
@@ -15,6 +37,7 @@ class StreamInstance(Hashable):
         self.generator = None
         self.disabled = False
         self.calls = 0
+        self.use_unique = (stream.bound_type == 'unique')
 
     def domain_mapping(self):
         return dict(zip(self.stream.inputs, self.inputs))
@@ -31,21 +54,28 @@ class StreamInstance(Hashable):
         mapping = self.graph_mapping(outputs)
         return [atom.substitute(mapping) for atom in self.stream.graph]
 
-    def next_outputs(self):
+    def next_outputs(self, context=None):
         assert not self.enumerated
         if self.generator is None:
             self.generator = self.stream.fn(*self.inputs)
         self.calls += 1
         if self.stream.max_calls <= self.calls:
             self.enumerated = True
-        try:
-            return next(self.generator)
-        except StopIteration:
-            self.enumerated = True
-            return []
+        if isinstance(self.generator, CondGen):
+            outputs = self.generator.generate(context=context)
+            self.enumerated = self.generator.enumerated
+            return outputs
+        else:
+            try:
+                return next(self.generator)
+            except StopIteration:
+                self.enumerated = True
+                return []
 
-    def next_atoms(self):
-        return [a for atoms in map(self.substitute_graph, self.next_outputs()) for a in atoms]
+    def next_atoms(self, context=None):
+        if isinstance(self.stream, WildStream):
+            return self.next_outputs(context=context)
+        return [a for atoms in map(self.substitute_graph, self.next_outputs(context=context)) for a in atoms]
 
     def get_effort(self):
         if self.enumerated or self.disabled:
@@ -67,15 +97,10 @@ class StreamInstance(Hashable):
         return '{}{}->{}'.format(self.stream.name, self.inputs, self.stream.outputs)
 
 
-class WildStream(object):
-
-    pass
-
-
-class Stream(WildStream):
+class Stream(object):
     """ Function to generator """
 
-    def __init__(self, inp, domain, fn, out, graph, bound='unique', effort=1, max_calls=INF, eager=False, name=""):
+    def __init__(self, inp, domain, fn, out, graph, bound='cyclic', effort=1, max_calls=INF, eager=False, name=""):
         self.inputs = process_parameters(inp)
         self.domain = process_domain(
             list(domain) + [Object(p) for p in self.inputs])
@@ -89,18 +114,24 @@ class Stream(WildStream):
             raise NotImplementedError(
                 'Unable to have constants in domain currently')
 
+        self.bound_type = bound
         if bound == 'unique':
-            self.bound = lambda *args: [tuple(OutputSet(self, args, i)
-                                              for i in xrange(len(self.outputs)))]
+            self.bound = unique_bound_fn(self)
         elif bound == 'shared':
-            self.bound = lambda *args: [tuple(SharedOutputSet(self, i)
-                                              for i in xrange(len(self.outputs)))]
+            self.bound = shared_bound_fn(self)
+        elif bound == 'cyclic':
+            self.bound = cyclic_bound_fn(self)
+        elif bound == 'depth':
+            self.bound = depth_bound_fn(self, max_depth=1)
         elif bound is None:
-            self.bound = lambda *args: []
+            self.bound = no_bound_fn(self)
+        elif isinstance(bound, PartialBoundFn):
+            self.bound = bound(self)
         else:
 
             self.bound = bound
         self.effort = effort
+
         self.instances = {}
 
     def bound_fn(self, *args):
@@ -123,13 +154,22 @@ class Stream(WildStream):
         return '{}{}->{}'.format(self.name, self.inputs, self.outputs)
 
 
+class WildStream(Stream):
+    """ Is just handled differently"""
+
+    pass
+
+
 class GenStream(Stream):
     """ Generator of values """
 
     def __init__(self, inp, domain, fn, out, graph, **kwargs):
         def gen(*inputs):
             for outputs in fn(*inputs):
-                yield [outputs]
+                if outputs is None:
+                    yield []
+                else:
+                    yield [outputs]
         super(GenStream, self).__init__(inp, domain, gen,
                                         out, graph, **kwargs)
 
@@ -147,16 +187,19 @@ class FnStream(ListStream):
     """ Function """
 
     def __init__(self, inp, domain, fn, out, graph, **kwargs):
-        super(FnStream, self).__init__(inp, domain,
-                                       lambda *args: [fn(*args)],
-                                       out, graph, **kwargs)
+        def list_fn(*args):
+            outputs = fn(*args)
+            if outputs is None:
+                return []
+            return [outputs]
+        super(FnStream, self).__init__(
+            inp, domain, list_fn, out, graph, **kwargs)
 
 
-class TestStream(ListStream):
+class TestStream(FnStream):
     """ Function """
 
     def __init__(self, inp, domain, test, graph, **kwargs):
         super(TestStream, self).__init__(inp, domain,
-                                         lambda *args: [tuple()
-                                                        ] if test(*args) else [],
+                                         lambda *args: tuple() if test(*args) else None,
                                          [], graph, **kwargs)

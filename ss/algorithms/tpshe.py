@@ -1,13 +1,17 @@
 from time import time
-from fast_downward import read, write, safe_remove, INF
+from fast_downward import read, write, safe_rm_file, safe_rm_dir, ensure_dir, INF, TEMP_DIR
 import os
+import re
+import math
 
 DOMAIN_PATH = 'domain.pddl'
 PROBLEM_PATH = 'problem.pddl'
 OUTPUT_PATH = 'sas_plan'
+TMP_OUTPUT_PATH = 'tmp_sas_plan'
 
 ENV_VAR = 'TPSHE_PATH'
-COMMAND = 'python {}bin/plan.py she {} {} --time {} --no-iterated'
+
+COMMAND = 'python {}bin/plan.py she {} {} --time {} --iterated'
 
 
 def get_tpshe_root():
@@ -17,8 +21,8 @@ def get_tpshe_root():
 
 
 def run_tpshe(max_time, verbose):
-    command = COMMAND.format(
-        get_tpshe_root(), DOMAIN_PATH, PROBLEM_PATH, max_time)
+    command = COMMAND.format(get_tpshe_root(), TEMP_DIR + DOMAIN_PATH,
+                             TEMP_DIR + PROBLEM_PATH, int(math.ceil(max_time)))
     t0 = time()
     p = os.popen(command)
     if verbose:
@@ -28,9 +32,20 @@ def run_tpshe(max_time, verbose):
         print
         print output
         print 'Runtime:', time() - t0
-    if not os.path.exists(OUTPUT_PATH):
+
+    plan_files = sorted(f for f in os.listdir(
+        '.') if f.startswith(TMP_OUTPUT_PATH))
+    if not plan_files:
         return None
-    return read(OUTPUT_PATH)
+
+    best_plan, best_makespan = None, INF
+    for plan_file in plan_files:
+        plan, duration = parse_tmp_solution(read(plan_file))
+        print plan_file, len(plan), duration
+        if duration <= best_makespan:
+            best_plan, best_makespan = plan, duration
+
+    return best_plan
 
 
 def parse_solution(solution):
@@ -43,20 +58,35 @@ def parse_solution(solution):
     return plan
 
 
+def parse_tmp_solution(solution):
+    total_duration = 0
+    plan = []
+    regex = r'(\d+.\d+): \(\s*(\w+(?:\s\w+)*)\s*\) \[(\d+.\d+)\]'
+    for start_time, action, duration in re.findall(regex, solution):
+        total_duration = max(float(start_time) +
+                             float(duration), total_duration)
+        entries = action.lower().split(' ')
+        plan.append((entries[0], tuple(entries[1:])))
+    return plan, total_duration
+
+PATHS = [OUTPUT_PATH, TMP_OUTPUT_PATH,
+         'dom.pddl', 'ins.pddl', 'output', 'output.sas',
+         'plan.validation', 'tdom.pddl', 'tins.pddl']
+
+
 def remove_paths():
-    for p in [DOMAIN_PATH, PROBLEM_PATH, OUTPUT_PATH,
-              'dom.pddl', 'ins.pddl', 'output', 'output.sas',
-              'plan.validation', 'tdom.pddl', 'tins.pddl', 'tmp_sas_plan']:
-        safe_remove(p)
+    safe_rm_dir(TEMP_DIR)
+    for f in os.listdir('.'):
+        if any(f.startswith(p) for p in PATHS):
+            safe_rm_file(f)
 
 
-def tpshe(domain_pddl, problem_pddl, max_time=30, verbose=True):
+def tpshe(domain_pddl, problem_pddl, max_time=30, verbose=True, clean=False, **kwargs):
     remove_paths()
-    write(DOMAIN_PATH, domain_pddl)
-    write(PROBLEM_PATH, problem_pddl)
+    ensure_dir(TEMP_DIR)
+    write(TEMP_DIR + DOMAIN_PATH, domain_pddl)
+    write(TEMP_DIR + PROBLEM_PATH, problem_pddl)
     solution = run_tpshe(max_time, verbose)
-    if solution is None:
-        return None
-    if not verbose:
+    if clean:
         remove_paths()
-    return parse_solution(solution)
+    return solution

@@ -1,13 +1,13 @@
 import time
 from collections import deque
 
-from ss.algorithms.focused_utils import evaluate_eager
+from ss.algorithms.focused_utils import evaluate_eager, BoundStream
 from ss.algorithms.incremental import solve_universe
 from ss.algorithms.universe import Universe
 from ss.model.functions import infer_evaluations
 from ss.model.problem import get_length, get_cost
 from ss.utils import INF
-from ss.algorithms.dual_focused import BoundStream, bound_stream_instances, solve_streams
+from ss.algorithms.dual_focused import bound_stream_instances, solve_streams
 
 
 class StreamSequence(object):
@@ -22,11 +22,14 @@ class StreamSequence(object):
         return repr(self.sequence)
 
 
-def add_sequence(disabled, sequence):
+def add_sequence(evaluations, disabled, sequence):
+
     if not sequence.sequence:
         return
     bound = sequence.sequence[0]
     instance = bound.stream
+    if instance.enumerated or not (set(instance.domain()) <= evaluations):
+        return
     if not instance.disabled:
 
         instance.disabled = True
@@ -39,9 +42,9 @@ def evaluate_instance(evaluations, disabled, instance):
     if instance.enumerated:
         return
     for outputs in instance.next_outputs():
-        print instance, outputs
 
         evaluations.update(instance.substitute_graph(outputs))
+
         for sequence in instance.sequences:
             bound = sequence.sequence[0]
             assert bound.stream is instance
@@ -54,7 +57,7 @@ def evaluate_instance(evaluations, disabled, instance):
                 new_sequence.append(BoundStream(
                     new_instance, bound2.bound_outputs, bound2.bound_atoms))
 
-            add_sequence(disabled, StreamSequence(
+            add_sequence(evaluations, disabled, StreamSequence(
                 new_sequence, sequence.plan, sequence.cost))
 
 
@@ -121,7 +124,8 @@ def sequence_focused(problem, max_time=INF, max_cost=INF, terminate_cost=INF,
         print 'Streams | Length: {} | {}'.format(get_length(streams, None), streams)
         if streams:
 
-            add_sequence(disabled, StreamSequence(streams, plan, cost))
+            add_sequence(evaluations, disabled,
+                         StreamSequence(streams, plan, cost))
         elif (streams is not None) and (cost < best_cost):
             best_plan = plan
             best_cost = cost

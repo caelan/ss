@@ -43,7 +43,9 @@ class Head(Hashable):
     def __init__(self, func, args):
         self.function = func
         self.args = tuple(args)
-        assert len(self.function.inputs) == len(self.args)
+        if len(self.function.inputs) != len(self.args):
+            raise ValueError('Function {} has {} parameters but {} arguments passed'.format(
+                self.function, len(self.function.inputs), len(self.args)))
         super(Head, self).__init__(func, self.args)
 
     def has_constants(self):
@@ -216,8 +218,8 @@ class RealFunction(Function):
 
 class NonNegFunction(Function):
 
-    def __init__(self, *args, **kwargs):
-        super(NonNegFunction, self).__init__(*args, bound=0, **kwargs)
+    def __init__(self, inp, bound=0, **kwargs):
+        super(NonNegFunction, self).__init__(inp, bound=bound, **kwargs)
 
 
 class Predicate(Function):

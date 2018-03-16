@@ -1,11 +1,12 @@
 from ss.model.functions import Predicate, Function, rename_functions, initialize, TotalCost, Increase
-from ss.model.problem import Action, Axiom, Problem
+from ss.model.problem import Problem
+from ss.model.operators import Action, Axiom
 from ss.model.streams import Stream, FnStream, ListStream
 from ss.algorithms.incremental import incremental, exhaustive
 from ss.algorithms.focused import focused
 from ss.algorithms.plan_focused import plan_focused
 from ss.algorithms.dual_focused import dual_focused
-from ss.model.bounds import OutputSet
+from ss.model.bounds import InputOutputSet
 from collections import namedtuple
 
 import cProfile
@@ -79,7 +80,7 @@ def main():
             return value.x, 0
         if isinstance(value, Pose):
             return value.x, 0
-        if isinstance(value, OutputSet):
+        if isinstance(value, InputOutputSet):
             if value.stream.name == 'IK':
                 _, _, p, _ = value.inputs
                 x, r = get_circle(p)

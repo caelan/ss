@@ -1,15 +1,16 @@
 from collections import defaultdict, deque
 from itertools import product
 
-from ss.model.functions import Object, Function, initialize, process_domain, Atom, Predicate, NegatedAtom
-from ss.model.problem import apply, reset_derived, apply_axioms, applicable, dump_evaluations, Goal
+from ss.model.functions import Object, Function, Predicate, initialize, process_domain, Atom, Predicate, NegatedAtom
+from ss.model.problem import reset_derived, apply_axioms, dump_evaluations
+from ss.model.operators import applicable, apply, Goal
 from ss.model.streams import Stream
 from ss.to_pddl import pddl_domain, pddl_problem
 
 
-def get_mapping(atoms1, atoms2):
+def get_mapping(atoms1, atoms2, initial={}):
     assert len(atoms1) == len(atoms2)
-    mapping = {}
+    mapping = initial.copy()
     for t, a in zip(atoms1, atoms2):
         assert t.head.function is a.head.function
         for p, v in zip(t.head.args, a.head.args):
@@ -66,6 +67,10 @@ class Universe(object):
         self.defined_functions = {f for f in self.functions if f.is_defined()}
         for func in self.defined_functions:
             if (use_bounds and (not func.is_bound_defined())) or (only_eager and (not func.eager)):
+
+                continue
+            if use_bounds and isinstance(func, Predicate) and (func.bound is False):
+
                 continue
             for i, atom in enumerate(func.domain):
                 self.streams_from_predicate[
@@ -126,6 +131,7 @@ class Universe(object):
                     self._add_instance(relation, mapping)
 
     def is_fluent(self, e):
+
         return e.head.function in self.fluents
 
     def is_derived(self, e):
@@ -178,16 +184,19 @@ class Universe(object):
         predicates = set(
             filter(lambda f: isinstance(f, Predicate), self.functions))
         functions = self.functions - predicates
+
         initial_str = [e.substitute(self.name_from_object)
                        for e in self.evaluations if not isinstance(e, NegatedAtom)]
         goal_str = [l.substitute(self.name_from_object)
                     for l in self.problem.goal]
-        return pddl_domain(self._domain_name, predicates, functions,
+        return pddl_domain(self._domain_name,
+                           self.object_from_name.keys(),
+                           predicates, functions,
                            [a.substitute_constants(self.name_from_object)
                             for a in self.action_from_name.values()],
                            [a.substitute_constants(self.name_from_object)
                             for axioms in self.axioms_from_derived.values() for a in axioms]),               pddl_problem(self._domain_name, self._problem_name,
-                                                                                                                          self.object_from_name.keys(),
+                                                                                                                          [],
                                                                                                                           initial_str, goal_str,
                                                                                                                           self.problem.objective)
 

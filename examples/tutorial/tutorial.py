@@ -1,15 +1,20 @@
 from ss.model.functions import Predicate, Function, rename_functions, initialize, TotalCost, Increase
-from ss.model.problem import Action, Axiom, Problem
+from ss.model.problem import Problem
+from ss.model.operators import Action, Axiom
 from ss.model.streams import Stream, FnStream, TestStream
 from ss.algorithms.incremental import incremental, exhaustive
 from ss.algorithms.focused import focused
 from ss.algorithms.plan_focused import plan_focused
 from ss.algorithms.dual_focused import dual_focused
 from ss.algorithms.sequence_focused import sequence_focused
+from ss.algorithms.hierarchical_focused import hierarchical_focused
 from ss.utils import INF
 
+import cProfile
+import pstats
 
-def main(n=3, bound='unique'):
+
+def main(n=5, bound='unique'):
     initial_conf = 0
     initial_poses = {'b{}'.format(i): i for i in xrange(n)}
 
@@ -88,9 +93,14 @@ def main(n=3, bound='unique'):
                       axioms, streams, objective=TotalCost())
     print problem
 
-    plan, evaluations = sequence_focused(problem, terminate_cost=0)
+    pr = cProfile.Profile()
+    pr.enable()
+
+    plan, evaluations = dual_focused(problem, terminate_cost=INF, verbose=True)
 
     print plan
+    pr.disable()
+    pstats.Stats(pr).sort_stats('cumtime').print_stats(10)
 
 if __name__ == '__main__':
     main()

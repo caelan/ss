@@ -25,6 +25,18 @@ def pddl_disjunction(literals):
     return pddl_connective(literals, 'or')
 
 
+def pddl_at_start(literal):
+    return '(at start {})'.format(literal.pddl())
+
+
+def pddl_over_all(literal):
+    return '(over all {})'.format(literal.pddl())
+
+
+def pddl_at_end(literal):
+    return '(at end {})'.format(literal.pddl())
+
+
 def pddl_head(name, args):
     if not args:
         return '({})'.format(name)
@@ -51,8 +63,8 @@ def pddl_axioms(axioms):
             quantified = set(axiom.parameters) - set(derived.args)
             condition = pddl_conjunction(axiom.preconditions)
             if quantified:
-                clauses.append('(exists ({}) {})'.format(
-                    ' '.join(map(pddl_parameter, quantified)), condition))
+                param_s = ' '.join(map(pddl_parameter, quantified))
+                clauses.append('(exists ({}) {})'.format(param_s, condition))
             else:
                 clauses.append(condition)
 
@@ -61,24 +73,26 @@ def pddl_axioms(axioms):
                                                                      '\n\t\t\t'.join(clauses))
 
 
-def pddl_domain(domain, predicates, functions, actions, axioms):
+def pddl_domain(domain, constants, predicates, functions, actions, axioms):
 
-    return '(define (domain {})\n'           '\t(:requirements :typing)\n'           '\t(:types {})\n'           '\t(:predicates {})\n'           '\t(:functions {})\n'           '{})\n'.format(domain, DEFAULT_TYPE,
-                                                                                                                                                                                                 pddl_functions(
-                                                                                                                                                                                                     predicates),
-                                                                                                                                                                                                 pddl_functions(
-                                                                                                                                                                                                     functions),
-                                                                                                                                                                                                 '\n'.join(list(pddl_actions(actions)) +
-                                                                                                                                                                                                           list(pddl_axioms(axioms))))
+    return '(define (domain {})\n'           '\t(:requirements :typing)\n'           '\t(:types {})\n'           '\t(:constants {})\n'           '\t(:predicates {})\n'           '\t(:functions {})\n'           '{})\n'.format(domain, DEFAULT_TYPE,
+                                                                                                                                                                                                                                 pddl_parameter(
+                                                                                                                                                                                                                                     ' '.join(sorted(constants))),
+                                                                                                                                                                                                                                 pddl_functions(
+                                                                                                                                                                                                                                     predicates),
+                                                                                                                                                                                                                                 pddl_functions(
+                                                                                                                                                                                                                                     functions),
+                                                                                                                                                                                                                                 '\n'.join(list(pddl_actions(actions)) +
+                                                                                                                                                                                                                                           list(pddl_axioms(axioms))))
 
 
 def pddl_problem(problem, domain, objects, initial_atoms, goal_literals, objective=None):
-    s = '(define (problem {})\n'           '\t(:domain {})\n'           '\t(:objects {})\n'           '\t(:init {})\n'           '\t(:goal {})'.format(problem, domain,
-                                                                                                                                                       pddl_parameter(
-                                                                                                                                                           ' '.join(sorted(objects))),
-                                                                                                                                                       pddl_functions(
-                                                                                                                                                           initial_atoms),
-                                                                                                                                                       pddl_conjunction(goal_literals))
+
+    s = '(define (problem {})\n'           '\t(:domain {})\n'           '\t(:init {})\n'           '\t(:goal {})'.format(problem, domain,
+
+                                                                                                                         pddl_functions(
+                                                                                                                             initial_atoms),
+                                                                                                                         pddl_conjunction(goal_literals))
     if objective is not None:
         s += '\n\t(:metric minimize {})'.format(objective.pddl())
     return s + ')\n'

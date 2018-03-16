@@ -1,5 +1,6 @@
 from ss.model.functions import Predicate, Function, rename_functions, initialize, TotalCost, Increase
-from ss.model.problem import Action, Axiom, Problem
+from ss.model.problem import Problem
+from ss.model.operators import Action, Axiom
 from ss.algorithms.incremental import exhaustive, incremental
 
 
