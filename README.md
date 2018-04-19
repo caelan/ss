@@ -1,4 +1,4 @@
-# pddlstream
+# ss
 
 Lightweight implementation of stripstream with support for functions
 
