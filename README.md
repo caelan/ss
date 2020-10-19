@@ -1,6 +1,8 @@
 # ss
 
-Lightweight implementation of stripstream with support for functions
+**DEPRECATED**: superseded by [pddlstream](https://github.com/caelan/pddlstream)
+
+Lightweight implementation of [stripstream](https://github.com/caelan/stripstream) with support for functions
 
 ## Examples
 
